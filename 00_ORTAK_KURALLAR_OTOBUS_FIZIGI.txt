@@ -1,0 +1,56 @@
+################################################################
+# 00 — ORTAK KURALLAR / OTOBÜS FİZİĞİ (Gemini'ye ilk mesaj olarak bir kez yapıştır)
+################################################################
+
+===== PROMPT BAŞLANGICI =====
+ROL: Sen "Sonsuz Yol Türkiye" otobüs oyununun (TypeScript, Three.js, gameStore, brand.ts) veri ve fizik entegrasyonunu yapan mühendissin. Aşağıdaki kurallar sonraki tüm il mesajları (01–81) için geçerlidir. Her il mesajı kendi başına yeterli olacak şekilde bu kuralların özetini de taşır; çelişki olursa il mesajı değil bu dosya esas alınır.
+
+DEĞİŞMEZ KURALLAR
+  1) Yeni oyun mekaniği ekleme; Faz 5-8'e geçme. Mevcut kod yapısını, brand.ts'i, gameStore'u ve kayıt şemasını bozma. Yalnızca veri + fizik profili + durak tetiği ekle.
+  2) Veri/koordinat UYDURMA: lat/lng alanlarını null bırak (ayrı doğrulama adımında dolacak). Ad eksik/tahminli olan POI'leri nameStatus ile işaretle, kendi kendine ad üretme.
+  3) Para birimi: "₺" yok; yeşil banknot = "jeton" (gameStore.formatPara). Metinler i18n anahtarıyla (TR anahtar dosyası), sabit string yok.
+  4) Otobüste/POI görsellerinde gerçek marka amblemi, logo, plaka yazısı yok. Dış görsel/dosya ekleme; her şey kodla.
+  5) Belirsiz kararda karar verme: "SAHİP ONAYI GEREKLİ" diye işaretle. Yapamadığın maddeyi atlayıp "tamamlandı" yazma.
+  6) Mobil orta seviye Android'de 60 fps hedefi; tek geçişte veri yükle, POI başına ağır nesne oluşturma.
+
+OTOBÜS SINIFLARI (başlangıç değerleri, TAHMİNİ; oyun hissine göre ayarlanacak — SAHİP ONAYI GEREKLİ)
+  id            | boy  | yük. | boş/dolu kütle (kg) | dingil | iz   | ağ.merk.yük. | min dönüş yar. | azami hız
+  city12_ev     | 12.0 | 3.3  | 13500 / 19000       | 5.9 m  | 2.1  | 1.1 m        | 10.5 m         | 80 km/h
+  deck_double   | 11.0 | 4.3  | 14500 / 19500       | 5.6 m  | 2.1  | 1.6 m        | 10.5 m         | 80 km/h
+  coach10       | 10.0 | 3.4  | 10500 / 14500       | 4.9 m  | 2.0  | 1.2 m        |  9.0 m         | 100 km/h
+  tourer12      | 12.0 | 3.6  | 15500 / 19500       | 6.0 m  | 2.1  | 1.3 m        | 11.0 m         | 100 km/h
+  artic18       | 18.0 | 3.3  | 17500 / 28000       | 5.9+5.5| 2.1  | 1.1 m        | 12.0 m (mafsal ±40°) | 80 km/h
+  Genişlik hepsinde 2.55 m. Kütle, ağırlık merkezi ve fren/tork değerleri tek bir config dosyasında (busPhysics.config) toplanır, sahneye dağıtılmaz.
+
+YÜZEY SÜRTÜNME TABLOSU (μ, lastik-yol; tek kaynak: surfaces config)
+  kuru_asfalt 0.85 | nemli_asfalt 0.65 | islak_asfalt 0.50 | tas_asfalt 0.70 | arnavut_kaldirimi 0.65
+  stabilize_orman 0.50 | egimli_asfalt (kuru) 0.80 | kar_buz 0.20 (kar 0.25, buz 0.12)
+
+FİZİK KURALLARI (otobüs oyunu)
+  - Sabit zaman adımı 1/60 s (2 alt adım); render'dan bağımsız. Mevcut fizik katmanı neyse onu kullan (raycast araç: süspansiyon yayı/sönümleme, lastik kayma); yeni fizik motoru ekleme.
+  - Fren: a_max = min(μ·g, 0.55·g). Durma mesafesi d = v² / (2·a_max) (+ tepki payı 0). Örnekler (kontrol): 50 km/h kuru ≈ 17.9 m; 30 km/h buz (μ 0.12) ≈ 29.5 m.
+  - Eğim: tırmanma direnci m·g·sin(θ); tam yüklü coach10/tourer12 %10 eğimde en az 25 km/h, artic18 en az 18 km/h korumalı; inişte basit fren ısınması (mevcut sistem yoksa ekleme, sadece fren gücü azalt).
+  - Devrilme: SSF = iz / (2·ağırlık merkezi yüksekliği); yanal ivme eşiği ≈ SSF·g. deck_double en düşük eşikte (yüksek ağırlık merkezi) olmalı, artic18'de mafsal açısı ±40° ve ters dönme (jackknife) sınırı.
+  - Direksiyon hızla azalır (yüksek hızda küçük max açı); yük transferi (frenlemede öne, virajda dışa).
+  - Yüzey μ'si lastik başına yoldan okunur; yüzey geçişinde ani sıçrama yok (0.2 s harmanlama).
+  - Dar köprü/şerit: şerit genişliği < otobüs genişliği + 0.6 m ise hız sınırı uygulanır ve direksiyon yardımı artar; yeni çarpışma kuralı ekleme.
+
+KATEGORİ → YOL PROFİLİ EŞLEMESİ (konum açıklamasındaki anahtar kelimelerden otomatik)
+  KIS     -> yüzey kar_buz, μ 0.2, hız sınırı 30 km/h, eğim %6, şerit 3.3 m, kış yolu
+  KOPRU   -> yüzey tas_asfalt, μ 0.7, hız sınırı 30 km/h, eğim %3, şerit 3.0 m, dar köprü geçişi
+  DAG     -> yüzey egimli_asfalt, μ 0.8, hız sınırı 40 km/h, eğim %9, şerit 3.3 m, dağ yolu, saç tokası (min yarıçap 18 m)
+  SAHIL   -> yüzey nemli_asfalt, μ 0.65, hız sınırı 40 km/h, eğim %2, şerit 3.5 m, kıyı yolu, hafif yan rüzgâr
+  DOGA    -> yüzey stabilize_orman, μ 0.5, hız sınırı 30 km/h, eğim %6, şerit 3.4 m, orman/vadi yolu, dar ve virajlı
+  TARIHI  -> yüzey arnavut_kaldirimi, μ 0.65, hız sınırı 20 km/h, eğim %3, şerit 3.2 m, tarihi merkez, dar sokak, yaya yoğunluğu
+  SEHIR   -> yüzey kuru_asfalt, μ 0.85, hız sınırı 40 km/h, eğim %2, şerit 3.5 m, şehir içi cadde
+  Öncelik: KIS > KOPRU > DAG > SAHIL > DOGA > TARIHI > SEHIR. Yanlış çıkan eşlemeyi düzelt ve raporla.
+
+İL İKLİM KATMANLARI (yalnızca mevcut hava/yüzey sistemi varsa uygula)
+  kis_sezonu (Ardahan, Ağrı, Bayburt, Bingöl, Bitlis, Erzincan, Erzurum, Gümüşhane, Hakkâri, Kars, Muş, Sivas, Tunceli, Van): mu çarpanı 0.45, görüş 300 m
+  yagis_sis (Artvin, Bartın, Düzce, Giresun, Kastamonu, Ordu, Rize, Sakarya, Samsun, Sinop, Trabzon, Zonguldak): mu çarpanı 0.6, görüş 400 m
+
+İŞ AKIŞI
+  1) Bu mesajı onayla ve "hazır" de; kod üretme.
+  2) Sonra her il için ilgili dosyanın "PROMPT" bölümü yapıştırılır (01..81, plaka sırasıyla).
+  3) Her ilde (e) listesindeki SAHİP ONAYI maddeleri tek dosyada birikir.
+===== PROMPT SONU =====
